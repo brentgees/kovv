@@ -1,0 +1,144 @@
+<?php
+
+define('MEVOC_HELPER_OVV_KALENDER_URL', 'http://kovv.mavari.be/clubdetail.aspx?stamnr=O-1443');
+
+function mevoc_helper_menu() {
+  $items = array();
+  
+  $items['uitslagen/%node'] = array(
+    'title callback' => 'mevoc_helper_uitslagen_title',
+    'title arguments' => array(1),
+    'page callback' => 'mevoc_helper_uitslagen_render',
+    'page arguments' => array(1),
+    'access arguments' => array('access content'),
+    'type' => MENU_CALLBACK,
+  );
+  
+  return $items;
+}
+
+function mevoc_helper_uitslagen_title($node) {
+  return $node->title . ': Kalender';
+}
+
+function mevoc_helper_uitslagen_render($node = NULL) {  
+  if (empty($node) && arg(0) == 'node' && is_numeric(arg(1))) {
+    $node = node_load(arg(1));
+  }
+  if (empty($node)) {
+    return 'De kalender kon niet gevonden worden.';
+  }
+  elseif (empty($node->field_ovv_reeks['und'][0]['value'])) {
+    return '';
+  }
+  
+  $cid = 'kalender:' . $node->nid;
+  if ($cache = cache_get($cid)) {
+    return $cache->data;
+  }
+ 
+  $output = '<h2>Kalender</h2>';
+  $html = drupal_http_request(MEVOC_HELPER_OVV_KALENDER_URL);
+  
+  // Search for the start of the kalender
+  $start = strpos($html->data, '<td colspan="14" bgcolor="Gray"><font color="White" size="1"><b>&nbsp;&nbsp;' . $node->field_ovv_reeks['und'][0]['value'] . '</b></font></td>');
+  $start = strpos($html->data, '<tr', $start);
+  $end = strpos($html->data, '<td colspan="14" bgcolor="Gray"><font color="White" size="1"><b>&nbsp;&nbsp;', $start+1);
+  if ($start !== FALSE) {
+    $result = drupal_substr($html->data, $start-3, $end-$start-8);
+    // Remove all html tags
+    $result = strip_tags($result, '<tr><td>');
+    // Remove column with referree and empty column at the end
+    $result = preg_replace('/<td>[^<]*<\/td><td>&nbsp;<\/td>/', '', $result);
+    // Replace 3 - 1 with 3-1
+    $result = preg_replace('/([0-3]) - ([0-3])/', '$1-$2', $result);
+    $result = preg_replace('/([0-3])-([0-3])/', '<nobr>$1-$2</nobr>', $result);
+    // Put Mevoc in bold
+    $result = preg_replace('/Mevoc([^<]*)/', '<strong>Mevoc$1</strong>', $result);
+    // Surround with a table
+    $output .= '<table>' . $result . '</table>';  
+  }
+  else {
+    $output .= 'De kalender kon niet gevonden worden.';
+  }
+  
+  // Add klassement since it's in the same page
+  $output .= mevoc_helper_klassement_render($node, $html);
+  
+  // Save the result to the cache
+  cache_set($cid, $output);
+  
+  return $output;
+}
+
+function mevoc_helper_klassement_render($node = NULL, $html = NULL) {
+  if (empty($node) && arg(0) == 'node' && is_numeric(arg(1))) {
+    $node = node_load(arg(1));
+  }
+  if (empty($node)) {
+    return 'Het klassement kon niet gevonden worden.';
+  }
+ 
+  $output = '<h2>Klassement</h2>';
+  
+  if (empty($html)) {
+    $html = drupal_http_request(MEVOC_HELPER_OVV_KALENDER_URL);  
+  }  
+  
+  // Search for the start of the klassement
+  $start = strpos($html->data, '<div id="divTab3" style="display:none">');
+  $start = strpos($html->data, '<td colspan="14" bgcolor="Gray"><font color="White" size="1"><b>&nbsp;&nbsp;' . $node->field_ovv_reeks['und'][0]['value'] . '</b></font></td>', $start);
+  $start = strpos($html->data, '<tr', $start);
+  $end = strpos($html->data, '<td colspan="14" bgcolor="Gray"><font color="White" size="1"><b>&nbsp;&nbsp;', $start+1);
+  if ($start !== FALSE) {
+    $result = drupal_substr($html->data, $start-4, $end-$start-11);
+    // Remove all html tags
+    $result = strip_tags($result, '<tr><td>');
+    // Put Mevoc in bold
+    $result = preg_replace('/Mevoc([^<]*)/', '<strong>Mevoc$1</strong>', $result);
+    // Add header row
+    $header = '<tr><th scope="col">&nbsp;</th><th scope="col">Ploeg</th><th align="center" scope="col"># wed</th><th align="center" scope="col">gew met 3-0 of 3-1</th><th align="center" scope="col">gew met 3-2</th><th align="center" scope="col">verl met 3-0 of 3-1</th><th align="center" scope="col">verl met 3-2</th><th align="center" scope="col">sets gew</th><th align="center" scope="col">sets verl</th><th align="center" scope="col">pnt</th><th align="center" scope="col">FF</th></tr>';
+    // Surround with a table
+    $output .= '<table>' . $header . $result . '</table>';  
+  }
+  else {
+    $output .= 'Het klassement kon niet gevonden worden.';
+  }
+  
+  return $output;
+}
+
+function mevoc_helper_block_info() {
+  // This example comes from node.module.
+  $blocks['kalender'] = array(
+    'info' => t('Kalender'), 
+  );
+
+  $blocks['klassement'] = array(
+    'info' => t('Klassement'),
+  );
+
+  return $blocks;
+}
+
+function mevoc_helper_block_view($delta = '') {
+  // This example is adapted from node.module.
+  $block = array();
+
+  switch ($delta) {
+    case 'kalender':
+      $block['subject'] = t('Kalender en Klassement');
+      $block['content'] = array(
+        '#markup' => mevoc_helper_uitslagen_render(), 
+      );
+      break;
+
+    case 'klassement':
+      $block['subject'] = t('Klassement');
+      $block['content'] = array(
+        '#markup' => mevoc_helper_klassement_render(), 
+      );
+      break;
+  }
+  return $block;
+}
